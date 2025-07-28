@@ -83,6 +83,7 @@ while (it < num_iter and t < tmax):
 
 
 # Plot the array
+plt.legend()
 plt.xlabel("x")
 plt.ylabel("v")
 plt.grid(True)
