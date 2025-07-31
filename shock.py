@@ -1,7 +1,5 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from configparser import ConfigParser
-import argparse
 
 GAMMA = 1.4
         
@@ -53,85 +51,47 @@ def fv(dx, dc, vc, ec, pc, ac):
     return dd, dv, de
 
 ###############################################################################
+class Shock1D:
+
+  def __init__(self, config):
+
+    cfg = ConfigParser()
+    cfg.read(config)
     
-parser = argparse.ArgumentParser(description="Benchmark matrix multiplication algorithms.")
-parser.add_argument("--config", required=True, type=str, help="Config file to use.")
-parser.add_argument("--freq", default=10, type=int, help="Plot frequency.")
-    
-args = parser.parse_args()
-    
-config = ConfigParser()
-config.read(args.config)
+    num_cells = cfg.getint('case', 'num_cells')
+    xmin = cfg.getfloat('case', 'xmin')
+    xmax = cfg.getfloat('case', 'xmax')
+    xmid = cfg.getfloat('case', 'xmid')
+    dl = cfg.getfloat('case', 'dl')
+    vl = cfg.getfloat('case', 'vl')
+    pl = cfg.getfloat('case', 'pl')
+    dr = cfg.getfloat('case', 'dr')
+    vr = cfg.getfloat('case', 'vr')
+    pr = cfg.getfloat('case', 'pr')
 
-num_cells = config.getint('case', 'num_cells')
-xmin = config.getfloat('case', 'xmin')
-xmax = config.getfloat('case', 'xmax')
-xmid = config.getfloat('case', 'xmid')
-dl = config.getfloat('case', 'dl')
-vl = config.getfloat('case', 'vl')
-pl = config.getfloat('case', 'pl')
-dr = config.getfloat('case', 'dr')
-vr = config.getfloat('case', 'vr')
-pr = config.getfloat('case', 'pr')
-cfl = config.getfloat('case', 'cfl')
-tmax = config.getfloat('case', 'tmax')
+    self.cfl = cfg.getfloat('case', 'cfl')
+  
+    self.xn = np.linspace(xmin, xmax, num_cells+1)
+    self.dx = np.diff(self.xn)
+    self.xc = self.xn[:num_cells] + self.dx/2
+  
+    self.dc = np.where( self.xc < xmid, dl, dr)
+    self.vc = np.where( self.xc < xmid, vl, vr)
+    self.pc = np.where( self.xc < xmid, pl, pr)
+    self.ec = energy(self.dc, self.pc)
 
-num_iter = config.getint('case', 'num_iter')
+  def advance(self, dtmax):
+  
+      ac = soundspeed(self.dc, self.pc)
+      dt = self.cfl * timestep(self.dx, self.vc, ac)
+      dt = min(dt, dtmax)
+      dd, dv, de = fv(self.dx, self.dc, self.vc, self.ec, self.pc, ac)
+      self.dc += dd * dt
+      self.vc += dv * dt
+      self.ec += de * dt
+      self.pc = pressure(self.dc, self.ec)
 
-xn = np.linspace(xmin, xmax, num_cells+1)
-dx = np.diff(xn)
-xc = xn[:num_cells] + dx/2
+      return dt
 
-dc = np.where( xc < xmid, dl, dr)
-vc = np.where( xc < xmid, vl, vr)
-pc = np.where( xc < xmid, pl, pr)
-ec = energy(dc, pc)
-
-fig, ax = plt.subplots(2, 2, figsize=(10, 8))
-    
-t = 0.
-it = 0
-
-lbl = "t={:.2e}".format(t)
-ax[0,0].plot(xc, dc, marker='x', label=lbl)
-ax[0,1].plot(xc, vc, marker='x', label=lbl)
-ax[1,0].plot(xc, pc, marker='x', label=lbl)
-ax[1,1].plot(xc, ec, marker='x', label=lbl)
-
-while (it < num_iter and t < tmax):
-   
-    t_left = tmax - t
-
-    ac = soundspeed(dc, pc)
-    dt = cfl * timestep(dx, vc, ac)
-    dt = min(dt, t_left)
-    dd, dv, de = fv(dx, dc, vc, ec, pc, ac)
-    dc += dd * dt
-    vc += dv * dt
-    ec += de * dt
-    pc = pressure(dc, ec)
-    t += dt
-    it += 1
-    print(f"it={it}, dt={cfl*dt}, t={t}")
-
-    if it % args.freq == 0:
-      lbl = "t={:.2e}".format(t)
-      ax[0,0].plot(xc, dc, marker='x', label=lbl)
-      ax[0,1].plot(xc, vc, marker='x', label=lbl)
-      ax[1,0].plot(xc, pc, marker='x', label=lbl)
-      ax[1,1].plot(xc, ec, marker='x', label=lbl)
-
-
-# Plot the array
-ax[0,0].legend()
-ax[0,0].set_title("Density")
-ax[0,1].set_title("Velocity")
-ax[1,0].set_title("Pressure")
-ax[1,1].set_title("Energy")
-ax[1,0].set_xlabel("x")
-ax[1,1].set_xlabel("x")
-for a in ax.flat:
-  a.grid(True)
-plt.show()
 
 

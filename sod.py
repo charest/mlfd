@@ -20,128 +20,162 @@ Originally written by Robert Fisher, 12/5/96.
 
 import numpy as np
 from scipy import optimize
-import matplotlib.pyplot as plt
+from configparser import ConfigParser
 
-# xmax determines the size of the computational domain (-xmax, +xmax).
-# numcells determines the number of cells in the output table.          
+def timestep(dx, vc, ac):
+    nc = len(dx)
+    dti = 0.
+    for i in range(nc):
+        ss = abs(vc[i]) + ac[i]
+        dti = max(dti, ss/dx[i])
+    return 1. / dti
 
-gamma   = 1.4
-mu2     = (gamma - 1.) / (gamma + 1.)
-xmin  = 0.
-xmax 	= 2.
-xmid = (xmax - xmin) / 2.
-numcells= 500
-     
-# Define the time of the problem.
+def sod_exact(gamma, pl, rhol, pr, rhor, xs, xmid, t):
 
-t = 2.45e-1
- 
-# Define the Sod problem initial conditions for the left and right states.
-
-pl = 1.
-pr = 1.e-1
-
-rhol = 1.
-rhor = 1.25e-1      
-
-# Define sound speeds for the left and right sides of tube.
-
-cl = np.sqrt (gamma * pl / rhol)
-cr = np.sqrt (gamma * pr / rhor)
-
-# Solve for the postshock pressure pm.
-
-def func(pm):
-    return -2*cl*(1 - (pm/pl)**((-1 + gamma)/(2*gamma))) / -(cr*(-1 + gamma)) - (-1 + pm/pr)*((1 - mu2)/(gamma*(mu2 + pm/pr)))**0.5
-
-pm = optimize.bisect(func, pr, pl, xtol=1.e-16)
-#pm = rtbis (pr, pl, 1.e-16)
-
-# Define the density to the left of the contact discontinuity rhoml.
- 
-rhoml = rhol * (pm / pl) ** (1. / gamma)
-
-# Define the postshock fluid velocity vm.
-
-vm = 2. * cl / (gamma - 1.) * (1. - (pm / pl) ** ( (gamma - 1.) / (2. * gamma) ))
-
-# Define the postshock density rhomr.
-
-rhomr = rhor *  ( (pm + mu2 * pr) / (pr + mu2 * pm) )
-
-# Define the shock velocity vs.
-
-vs = vm / (1. - rhor / rhomr) 
-
-# Define the velocity of the rarefraction tail, vt.
-
-vt = cl - vm / (1. - mu2) 
-
-# Output tables of density, velocity, and pressure at time t.
-density = np.empty(numcells)
-pressure = np.empty(numcells)
-velocity = np.empty(numcells)
-coords = np.empty(numcells)
-xdelta = xmax - xmin
-
-for i in range(numcells):
+  mu2  = (gamma - 1.) / (gamma + 1.)
+  
+  # Define sound speeds for the left and right sides of tube.
+  
+  cl = np.sqrt (gamma * pl / rhol)
+  cr = np.sqrt (gamma * pr / rhor)
+  
+  # Solve for the postshock pressure pm.
+  
+  def func(pm):
+      return -2*cl*(1 - (pm/pl)**((-1 + gamma)/(2*gamma))) / -(cr*(-1 + gamma)) - (-1 + pm/pr)*((1 - mu2)/(gamma*(mu2 + pm/pr)))**0.5
+  
+  pm = optimize.bisect(func, pr, pl, xtol=1.e-16)
+  #pm = rtbis (pr, pl, 1.e-16)
+  
+  # Define the density to the left of the contact discontinuity rhoml.
    
-    x = xmin + xdelta * i / numcells
-    coords[i] = x
+  rhoml = rhol * (pm / pl) ** (1. / gamma)
+  
+  # Define the postshock fluid velocity vm.
+  
+  vm = 2. * cl / (gamma - 1.) * (1. - (pm / pl) ** ( (gamma - 1.) / (2. * gamma) ))
+  
+  # Define the postshock density rhomr.
+  
+  rhomr = rhor *  ( (pm + mu2 * pr) / (pr + mu2 * pm) )
+  
+  # Define the shock velocity vs.
+  
+  vs = vm / (1. - rhor / rhomr) 
+  
+  # Define the velocity of the rarefraction tail, vt.
+  
+  vt = cl - vm / (1. - mu2) 
+  
+  # Output tables of density, velocity, and pressure at time t.
+  numcells = len(xs)
+  density = np.empty(numcells)
+  pressure = np.empty(numcells)
+  velocity = np.empty(numcells)
+  
+  for i in range(numcells):
+     
+      x = xs[i] - xmid
+   
+      if (x <= - cl * t):
+          density[i] = rhol
+      elif (x <= -vt * t):
+          density[i] = rhol * (-mu2 * (x / (cl * t) ) + (1 - mu2) ) ** (2. / (gamma - 1.)) 
+      elif (x <= vm * t):
+          density[i] = rhoml
+      elif (x <= vs * t):
+          density[i] = rhomr
+      else:
+          density[i] = rhor
+      
+      if (x <= - cl * t):
+          pressure[i] = pl
+      elif (x <= -vt * t):
+          pressure[i] = pl * (-mu2 * (x / (cl * t) ) + (1 - mu2) ) ** (2. * gamma / (gamma - 1.))
+      elif (x <= vs * t):
+          pressure[i] = pm 
+      else:            
+          pressure[i] = pr
+      
+      if (x <= -cl * t):
+          velocity[i] = 0.0
+      elif (x <= -vt * t):
+          velocity[i] = (1 - mu2) * (x / t + cl)
+      elif (x <= vs * t):
+          velocity[i] = vm
+      else: 
+          velocity[i] = 0.0
 
-    x -= xmid
- 
-    if (x <= - cl * t):
-        density[i] = rhol
-    elif (x <= -vt * t):
-        density[i] = rhol * (-mu2 * (x / (cl * t) ) + (1 - mu2) ) ** (2. / (gamma - 1.)) 
-    elif (x <= vm * t):
-        density[i] = rhoml
-    elif (x <= vs * t):
-        density[i] = rhomr
-    else:
-        density[i] = rhor
+  return density, velocity, pressure
+
+
+class Sod1D:
+
+  def __init__(self, config):
+
+    cfg = ConfigParser()
+    cfg.read(config)
     
-    if (x <= - cl * t):
-        pressure[i] = pl
-    elif (x <= -vt * t):
-        pressure[i] = pl * (-mu2 * (x / (cl * t) ) + (1 - mu2) ) ** (2. * gamma / (gamma - 1.))
-    elif (x <= vs * t):
-        pressure[i] = pm 
-    else:            
-        pressure[i] = pr
+    self.gamma= 1.4
+    xmin = cfg.getfloat('case', 'xmin')
+    xmax = cfg.getfloat('case', 'xmax')
+    self.xmid = cfg.getfloat('case', 'xmid')
+    self.dl = cfg.getfloat('case', 'dl')
+    self.pl = cfg.getfloat('case', 'pl')
+    self.dr = cfg.getfloat('case', 'dr')
+    self.pr = cfg.getfloat('case', 'pr')
     
-    if (x <= -cl * t):
-        velocity[i] = 0.0
-    elif (x <= -vt * t):
-        velocity[i] = (1 - mu2) * (x / t + cl)
-    elif (x <= vs * t):
-        velocity[i] = vm
-    else: 
-        velocity[i] = 0.0
-
-energy = pressure / density / (gamma - 1.)
+    self.cfl = cfg.getfloat('case', 'cfl')
+    num_cells = cfg.getint('case', 'num_cells')
+   
+    self.t = 0
     
-fig, ax = plt.subplots(2, 2, figsize=(10, 8))
-ax[0, 0].plot(coords, density)
-ax[0, 0].set_title('Density')
+    self.xn = np.linspace(xmin, xmax, num_cells+1)
+    self.dx = np.diff(self.xn)
+    self.xc = self.xn[:num_cells] + self.dx/2
+       
+    self.dc, self.vc, self.pc = sod_exact(self.gamma, self.pl, self.dl, self.pr, self.dr, self.xc, self.xmid, self.t)
+    self.ec = self.pc / self.dc / (self.gamma - 1.) 
+  
+  def advance(self, dtmax):
+  
+      ac = np.sqrt( self.gamma * self.pc / self.dc )
 
-ax[0, 1].plot(coords, velocity)
-ax[0, 1].set_title('Velocity')
+      dt = self.cfl * timestep(self.dx, self.vc, ac)
+      dt = min(dt, dtmax)
 
-ax[1, 0].plot(coords, pressure)
-ax[1, 0].set_title('Pressure')
+      self.t += dt
+      
+      self.dc, self.vc, self.pc = sod_exact(self.gamma, self.pl, self.dl, self.pr, self.dr, self.xc, self.xmid, self.t)
+      self.ec = self.pc / self.dc / (self.gamma - 1.)
 
-ax[1, 1].plot(coords, energy)
-ax[1, 1].set_title('Energy')
+      return dt
 
-#ax[1, 1].plot(x, -y)
-#ax[1, 1].set_title('Plot 4')
+  def regrid(self, fact):
 
-# Improve layout
-plt.tight_layout()
-plt.show()
+    nf = len(self.xc)
+    nc = nf // fact
 
+    geom = np.full(fact, 1./fact)
+    xc = np.empty(nc)
+    dc = np.empty(nc)
+    vc = np.empty(nc)
+    ec = np.empty(nc)
+
+    mom = self.dc * self.vc
+    en = self.dc * (self.ec + 0.5*self.vc*self.vc)
+    
+    for i in range(nc):
+      start = i * fact
+      end = start + fact
+      xc[i] = np.dot( self.xc[start:end], geom )
+      dc[i] = np.dot( self.dc[start:end], geom )
+      vc[i] = np.dot( mom[start:end], geom ) / dc[i]
+      ec[i] = np.dot( en [start:end], geom ) / dc[i] - 0.5*vc[i]*vc[i]
+    
+    pc = (self.gamma-1) * dc * ec
+    
+    return xc, dc, vc, ec, pc 
 
 
 """
